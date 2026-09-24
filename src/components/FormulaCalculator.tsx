@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { KendallModelType } from '../types/queue';
-import { calculateMM1, calculateMMC, calculateMD1, calculateMG1, getStepByStepCalculation } from '../utils/mathFormulas';
+import { calculateMM1, calculateMMC, calculateMD1, calculateMG1, calculateMGkLoss, getStepByStepCalculation } from '../utils/mathFormulas';
 import { MathView } from './MathView';
 import { BookOpen, Layers, Server } from 'lucide-react';
 
@@ -18,7 +18,9 @@ export const FormulaCalculator: React.FC = () => {
       ? calculateMMC(lambda, mu, k)
       : selectedModel === 'M/G/1'
         ? calculateMG1(lambda, mu, sigma)
-        : calculateMD1(lambda, mu);
+        : selectedModel === 'M/G/k'
+          ? calculateMGkLoss(lambda, mu, k)
+          : calculateMD1(lambda, mu);
 
   const steps = getStepByStepCalculation(selectedModel, lambda, mu, k, sigma);
 
@@ -43,6 +45,11 @@ export const FormulaCalculator: React.FC = () => {
       subtitle: 'Thời gian phục vụ không đổi (Deterministic, σ = 0), hàng chờ Lq giảm 50% so với M/M/1.',
       tag: '1 Server · Thời gian cố định (σ = 0)',
     },
+    'M/G/k': {
+      title: 'M/G/k (Không hàng chờ): Phục vụ tổng quát G, k server, Erlang-B',
+      subtitle: 'Mô hình mất khách (M/G/k/k Loss System). Không có hàng chờ, khách đến khi k quầy bận sẽ bị từ chối ngay.',
+      tag: 'k Servers · Không hàng chờ (Erlang-B)',
+    },
   };
 
   return (
@@ -59,7 +66,7 @@ export const FormulaCalculator: React.FC = () => {
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5 bg-slate-900 border border-slate-800 p-1.5 rounded-lg">
-          {(['M/M/1', 'M/M/k', 'M/G/1', 'M/D/1'] as KendallModelType[]).map((m) => (
+          {(['M/M/1', 'M/M/k', 'M/G/1', 'M/D/1', 'M/G/k'] as KendallModelType[]).map((m) => (
             <button
               key={m}
               onClick={() => setSelectedModel(m)}
@@ -69,7 +76,7 @@ export const FormulaCalculator: React.FC = () => {
                   : 'text-slate-400 hover:text-white'
               }`}
             >
-              {m}
+              {m === 'M/G/k' ? 'M/G/k (Mất khách)' : m}
             </button>
           ))}
         </div>
@@ -249,6 +256,32 @@ export const FormulaCalculator: React.FC = () => {
               </div>
             )}
 
+            {selectedModel === 'M/G/k' && (
+              <div className="mb-4">
+                <label className="text-xs text-slate-300 font-medium block mb-1.5">
+                  Số lượng server phục vụ song song (k)
+                </label>
+                <div className="flex items-center gap-2 mb-2.5">
+                  {[2, 3, 4, 5, 6, 8].map((num) => (
+                    <button
+                      key={num}
+                      onClick={() => setK(num)}
+                      className={`flex-1 py-1.5 text-xs font-mono font-bold rounded-lg border transition-colors cursor-pointer ${
+                        k === num
+                          ? 'bg-cyan-600/30 border-cyan-500 text-cyan-200'
+                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      k = {num}
+                    </button>
+                  ))}
+                </div>
+                <div className="p-2.5 rounded-lg bg-cyan-950/30 border border-cyan-800/40 text-[11px] text-cyan-200/90 leading-relaxed">
+                  <span className="font-semibold text-cyan-300">Đặc tính bất biến Erlang:</span> Dung lượng hàng chờ = 0 (hệ thống mất khách). Kết quả chỉ phụ thuộc vào thời gian phục vụ trung bình <MathView formula="1/\mu" />, độc lập với phương sai <MathView formula="\sigma^2" /> của phân phối G.
+                </div>
+              </div>
+            )}
+
             <div className="mt-5 pt-4 border-t border-slate-800">
               <div className="flex items-center justify-between mb-2.5">
                 <span className="text-xs font-semibold text-slate-300">6 Chỉ Số Cân Bằng Chuẩn (Steady-State):</span>
@@ -319,8 +352,8 @@ export const FormulaCalculator: React.FC = () => {
                 {/* 6. Pw */}
                 <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800 hover:border-slate-700 transition-colors">
                   <div className="flex items-center justify-between text-slate-500 mb-0.5">
-                    <span>6. Xác suất phải chờ</span>
-                    <span className="font-mono text-purple-400 font-bold text-[11px]">P_w</span>
+                    <span>{selectedModel === 'M/G/k' ? '6. Xác suất mất khách' : '6. Xác suất phải chờ'}</span>
+                    <span className="font-mono text-purple-400 font-bold text-[11px]">{selectedModel === 'M/G/k' ? 'P_k' : 'P_w'}</span>
                   </div>
                   <span className={`font-mono font-bold text-sm ${metrics.isStable ? 'text-purple-300' : 'text-rose-400'}`}>
                     {metrics.isStable ? `${(metrics.Pw * 100).toFixed(1)}%` : '100%'}
@@ -331,44 +364,50 @@ export const FormulaCalculator: React.FC = () => {
           </div>
         </div>
 
+        {/* Right Column: 6 Stages Calculation Steps */}
         <div className="lg:col-span-8 flex flex-col gap-4">
           <div className="flex items-center justify-between">
-            <h3 className="text-base font-bold text-white flex items-center gap-2">
+            <h3 className="text-sm font-semibold text-white flex items-center gap-2">
               <Layers className="w-4 h-4 text-cyan-400" />
               <span>Đủ 6 Phép Tính Cho {selectedModel} (Thứ tự: P₀ → Lq → L → Wq → W → Pw)</span>
             </h3>
-            <span className="text-xs font-mono text-cyan-400 bg-cyan-950/80 px-2.5 py-1 rounded border border-cyan-800/80">
-              {steps.length} phép tính chuẩn xác 100%
+            <span className="text-xs font-mono text-slate-400">
+              6 Phép tính chuẩn hóa
             </span>
           </div>
 
           <div className="space-y-4">
-            {steps.map((st) => (
+            {steps.map((s) => (
               <div
-                key={st.stepNumber}
-                className="rounded-xl border border-slate-800 bg-slate-900/40 p-5 hover:border-slate-700/80 transition-all duration-200"
+                key={s.stepNumber}
+                className="rounded-xl border border-slate-800 bg-slate-900/60 p-5 backdrop-blur hover:border-slate-700/80 transition-all"
               >
-                <div className="flex items-start justify-between gap-4 mb-2">
-                  <div className="flex items-center gap-2.5">
-                    <span className="w-6 h-6 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 flex items-center justify-center text-xs font-mono font-bold">
-                      {st.stepNumber}
-                    </span>
-                    <h4 className="text-sm font-semibold text-slate-200">{st.stageName}</h4>
+                <div className="flex items-start gap-3">
+                  <div className="w-7 h-7 rounded-lg bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center font-mono font-bold text-xs text-cyan-400 shrink-0 mt-0.5">
+                    {s.stepNumber}
                   </div>
-                </div>
+                  <div className="flex-1 min-w-0">
+                    <h4 className="text-sm font-bold text-white mb-1">{s.stageName}</h4>
+                    <p className="text-xs text-slate-400 mb-3">{s.description}</p>
 
-                <p className="text-xs text-slate-400 mb-3">{st.description}</p>
+                    <div className="bg-slate-950 rounded-lg p-3.5 border border-slate-800 mb-3 font-mono text-sm overflow-x-auto">
+                      <div className="text-slate-400 text-xs mb-1">Công thức tổng quát:</div>
+                      <div className="text-cyan-300 py-1">
+                        <MathView formula={s.latexFormula} />
+                      </div>
+                    </div>
 
-                <div className="bg-slate-950 rounded-lg p-3 border border-slate-800/80 my-2 overflow-x-auto text-cyan-200 text-sm">
-                  <MathView formula={st.latexFormula} displayMode={true} />
-                </div>
+                    <div className="bg-slate-950/80 rounded-lg p-3 border border-cyan-900/30 mb-2 font-mono text-xs flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-slate-400">Kết quả tính toán với số liệu:</span>
+                      <span className="text-emerald-300 font-bold text-sm">
+                        <MathView formula={s.numericalResult} />
+                      </span>
+                    </div>
 
-                <div className="mt-3 flex flex-col sm:flex-row sm:items-center justify-between bg-slate-900/80 rounded-lg px-3 py-2 border border-slate-800 text-xs gap-2">
-                  <div className="font-mono text-emerald-300 font-semibold">
-                    <MathView formula={st.numericalResult} />
-                  </div>
-                  <div className="text-slate-400 sm:max-w-md text-right">
-                    {st.explanation}
+                    <div className="text-xs text-slate-400 bg-slate-900/90 rounded p-2 border border-slate-800/80">
+                      <span className="text-cyan-400 font-semibold">Ý nghĩa thực tế: </span>
+                      {s.explanation}
+                    </div>
                   </div>
                 </div>
               </div>
