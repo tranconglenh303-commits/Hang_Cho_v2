@@ -16,13 +16,40 @@ export const Hero: React.FC = () => {
           <span>Tiêu chuẩn Kendall A/B/c</span>
         </div>
 
-        <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-white tracking-tight max-w-4xl" style={{ textWrap: 'balance' }}>
-          Mô Hình Hàng Chờ: Bản Chất Vận Hành, Công Thức Từng Giai Đoạn & Ứng Dụng Thực Tiễn
-        </h1>
+<div className="max-w-5xl">
+  {/* Tiêu đề chính */}
+  <h1
+    className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-white tracking-tight leading-tight"
+    style={{ textWrap: 'balance' }}
+  >
+    Mô Hình Hàng Chờ: Bản Chất Vận Hành,
+    Công Thức Từng Giai Đoạn & Ứng Dụng Thực Tiễn
+  </h1>
 
-        <p className="mt-4 text-base sm:text-lg text-slate-300 max-w-3xl leading-relaxed">
-          Khám phá toàn diện Lý thuyết Hàng chờ qua mô phỏng trực quan tương tác, tính toán chuẩn hóa đầy đủ 6 chỉ số (<MathView formula="P_0, L_q, L, W_q, W, P_w" />) cho cả 4 mô hình kinh điển (<span className="text-cyan-300 font-semibold">M/M/1, M/M/k, M/G/1, M/D/1</span>), phân tích tối ưu hóa kinh tế và ứng dụng thực tế.
-        </p>
+  {/* Thông tin nhóm và giảng viên */}
+  <div className="mt-6 flex flex-col gap-2 border-l-4 border-cyan-400 pl-4">
+  <p className="text-lg sm:text-xl font-bold text-cyan-400">
+    NHÓM 6
+  </p>
+
+  <p className="text-base sm:text-lg text-slate-300">
+    <span className="font-medium text-slate-400">
+      Môn học:
+    </span>
+    <span className="block sm:inline sm:ml-2 font-semibold text-white">
+      Phân tích định lượng trong kinh doanh
+    </span>
+  </p>
+
+  <p className="text-base sm:text-lg text-slate-300">
+    <span className="font-medium text-slate-400">
+      Giảng viên:
+    </span>
+    <span className="block sm:inline sm:ml-2 font-semibold text-white">
+      TS. Chu Nguyễn Mộng Ngọc
+    </span>
+  </p>
+</div>
 
         <div className="mt-8 grid grid-cols-2 sm:grid-cols-4 gap-3 max-w-4xl">
           <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3.5 backdrop-blur">
