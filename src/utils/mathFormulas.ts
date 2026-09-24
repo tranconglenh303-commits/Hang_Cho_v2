@@ -28,16 +28,16 @@ export function calculateMM1(lambda: number, mu: number) {
   const L = rho / (1 - rho);
   const Lq = (rho * rho) / (1 - rho);
   const W = 1 / (mu - lambda);
-  const Wq = lambda / (mu * (mu - lambda));
-  const Pw = rho; // P(wait) = P(N >= 1) = 1 - P0 = rho
+  const Wq = rho / (mu - lambda);
+  const Pw = rho; // PASTA: P(wait) = P(n >= 1) = rho
 
   return { rho, isStable: true, P0, L, Lq, W, Wq, Pw };
 }
 
 export function calculateMMC(lambda: number, mu: number, c: number) {
-  const rho = lambda / (c * mu);
+  const r = lambda / mu;
+  const rho = r / c;
   const isStable = rho < 1;
-  const a = lambda / mu;
 
   if (!isStable) {
     return {
@@ -48,33 +48,36 @@ export function calculateMMC(lambda: number, mu: number, c: number) {
       Lq: Infinity,
       W: Infinity,
       Wq: Infinity,
-      Pwait: 1,
       Pw: 1,
     };
   }
 
+  // Calculate P0
   let sum = 0;
   for (let n = 0; n < c; n++) {
-    sum += Math.pow(a, n) / factorial(n);
+    sum += Math.pow(r, n) / factorial(n);
   }
-  const lastTerm = Math.pow(a, c) / (factorial(c) * (1 - rho));
-  const P0 = 1 / (sum + lastTerm);
+  sum += (Math.pow(r, c) / (factorial(c) * (1 - rho)));
+  const P0 = 1 / sum;
 
-  const Pwait = (Math.pow(a, c) / (factorial(c) * (1 - rho))) * P0;
-  const Lq = (Pwait * rho) / (1 - rho);
+  // Erlang C (Probability of waiting in queue: Pw)
+  const Pw = (Math.pow(r, c) / (factorial(c) * (1 - rho))) * P0;
+
+  // Average queue length Lq
+  const Lq = (Pw * rho) / (1 - rho);
   const Wq = Lq / lambda;
   const W = Wq + 1 / mu;
-  const L = lambda * W;
+  const L = lambda * W; // L = Lq + r
 
-  return { rho, isStable: true, P0, L, Lq, W, Wq, Pwait, Pw: Pwait };
+  return { rho, isStable: true, P0, L, Lq, W, Wq, Pw };
 }
 
 export function calculateMM1K(lambda: number, mu: number, K: number) {
   const rho = lambda / mu;
-  let P0: number;
-  let PK: number;
+  let P0 = 0;
+  let PK = 0;
 
-  if (Math.abs(rho - 1) < 0.0001) {
+  if (Math.abs(rho - 1) < 1e-6) {
     P0 = 1 / (K + 1);
     PK = 1 / (K + 1);
   } else {
@@ -83,9 +86,8 @@ export function calculateMM1K(lambda: number, mu: number, K: number) {
   }
 
   const lambdaEff = lambda * (1 - PK);
-
   let L = 0;
-  if (Math.abs(rho - 1) < 0.0001) {
+  if (Math.abs(rho - 1) < 1e-6) {
     L = K / 2;
   } else {
     L = (rho / (1 - rho)) - (((K + 1) * Math.pow(rho, K + 1)) / (1 - Math.pow(rho, K + 1)));
@@ -117,14 +119,55 @@ export function calculateMD1(lambda: number, mu: number) {
   }
 
   const P0 = 1 - rho;
-  // M/D/1: sigma = 0 in Pollaczek-Khinchine formula => Lq = rho^2 / (2 * (1 - rho))
   const Lq = (rho * rho) / (2 * (1 - rho));
   const Wq = Lq / lambda;
   const W = Wq + 1 / mu;
-  const L = lambda * W; // or Lq + rho
-  const Pw = rho; // PASTA: P(wait) = P(server busy) = rho
+  const L = lambda * W;
+  const Pw = rho;
 
   return { rho, isStable: true, P0, L, Lq, W, Wq, Pw };
+}
+
+export function calculateMGkLoss(lambda: number, mu: number, k: number) {
+  const a = lambda / mu; // offered load
+  const rho = a / k; // traffic intensity per server
+
+  // Compute Erlang-B recursion: B(n, a) = (a * B(n-1, a)) / (n + a * B(n-1, a))
+  let B = 1;
+  for (let n = 1; n <= k; n++) {
+    B = (a * B) / (n + a * B);
+  }
+  const Pk = B; // Loss probability (Erlang B)
+  const Pw = Pk; // Probability of arrival being blocked
+
+  // Compute sum_{n=0}^k a^n / n! to get P0
+  let sumTerm = 1;
+  let term = 1;
+  for (let n = 1; n <= k; n++) {
+    term = term * (a / n);
+    sumTerm += term;
+  }
+  const P0 = 1 / sumTerm;
+
+  const lambdaEff = lambda * (1 - Pk);
+  const L = a * (1 - Pk); // avg customers in system = avg busy servers
+  const Lq = 0; // No queue capacity
+  const Wq = 0; // No waiting time
+  const W = 1 / mu; // Service time for admitted customers
+
+  return {
+    a,
+    rho,
+    isStable: true, // Loss systems are always stable for any finite lambda
+    Pk,
+    P0,
+    L,
+    Lq,
+    W,
+    Wq,
+    Pw,
+    lambdaEff,
+  };
 }
 
 export function calculateMG1(lambda: number, mu: number, sigma: number) {
@@ -150,7 +193,7 @@ export function calculateMG1(lambda: number, mu: number, sigma: number) {
   const Wq = Lq / lambda;
   const W = Wq + 1 / mu;
   const L = lambda * W;
-  const Pw = rho; // PASTA: P(wait) = P(server busy) = rho
+  const Pw = rho;
 
   return { rho, isStable: true, P0, L, Lq, W, Wq, Pw };
 }
@@ -194,34 +237,34 @@ export function getStepByStepCalculation(
         {
           stepNumber: 3,
           stageName: 'Phép tính 3 (L): Số lượng khách trung bình trong toàn hệ thống',
-          description: 'Tổng số khách trong hệ thống không bị chặn.',
+          description: 'Số khách trong hệ thống tiến tới vô cùng.',
           latexFormula: 'L = \\frac{\\rho}{1 - \\rho} \\to \\infty',
           numericalResult: 'L = \\infty \\text{ (Vô hạn)}',
-          explanation: 'Toàn hệ thống tắc nghẽn vô hạn.',
+          explanation: 'Khách đến dồn ứ vô hạn.',
         },
         {
           stepNumber: 4,
           stageName: 'Phép tính 4 (Wq): Thời gian chờ trung bình trong hàng chờ',
-          description: 'Thời gian chờ vô hạn khi ρ ≥ 1.',
+          description: 'Thời gian chờ đợi tăng vô hạn.',
           latexFormula: 'W_q = \\frac{L_q}{\\lambda} \\to \\infty',
           numericalResult: 'W_q = \\infty \\text{ (Vô hạn)}',
-          explanation: 'Khách hàng phải chờ vô hạn.',
+          explanation: 'Khách hàng phải chờ vô tận.',
         },
         {
           stepNumber: 5,
           stageName: 'Phép tính 5 (W): Thời gian lưu lại trung bình trong hệ thống',
-          description: 'Tổng thời gian lưu lại không thể hội tụ.',
-          latexFormula: 'W = W_q + \\frac{1}{\\mu} \\to \\infty',
+          description: 'Thời gian lưu lại tăng vô hạn.',
+          latexFormula: 'W = \\frac{L}{\\lambda} \\to \\infty',
           numericalResult: 'W = \\infty \\text{ (Vô hạn)}',
-          explanation: 'Tổng thời gian lưu lại trong hệ thống là vô hạn.',
+          explanation: 'Hệ thống tắc nghẽn hoàn toàn.',
         },
         {
           stepNumber: 6,
           stageName: 'Phép tính 6 (Pw): Xác suất khách đến phải chờ',
-          description: 'Xác suất phải chờ bằng 100% khi hệ thống quá tải.',
-          latexFormula: 'P_w = 1',
+          description: 'Hệ thống luôn đầy.',
+          latexFormula: 'P_w = 1 - P_0 = 100\\%',
           numericalResult: 'P_w = 100\\%',
-          explanation: 'Mọi khách đến đều phải chờ do server luôn bận.',
+          explanation: '100% khách đến đều phải chờ.',
         },
       ];
     }
@@ -230,169 +273,165 @@ export function getStepByStepCalculation(
       {
         stepNumber: 1,
         stageName: 'Phép tính 1 (P₀): Xác suất không có khách trong hệ thống (Hệ thống rảnh)',
-        description: 'Mô hình M/M/1: Lượt đến Poisson (λ), thời gian phục vụ Mũ (μ), 1 server. Xác suất tại một thời điểm ngẫu nhiên server hoàn toàn rảnh rỗi.',
+        description: 'Xác suất để hệ thống không có bất kỳ khách hàng nào, quầy phục vụ hoàn toàn rảnh rỗi.',
         latexFormula: 'P_0 = 1 - \\rho = 1 - \\frac{\\lambda}{\\mu}',
         numericalResult: `P_0 = 1 - \\frac{${lambda}}{${mu}} = 1 - ${res.rho.toFixed(3)} = ${res.P0.toFixed(4)} \\quad (${(res.P0 * 100).toFixed(2)}\\%)`,
-        explanation: `Hệ số tải \\rho = ${(res.rho * 100).toFixed(1)}%. Server rảnh ${(res.P0 * 100).toFixed(2)}% thời gian và bận ${(res.rho * 100).toFixed(2)}% thời gian.`,
+        explanation: `Quầy rảnh rỗi ${(res.P0 * 100).toFixed(2)}% thời gian hoạt động. Quầy đang bận ${(res.rho * 100).toFixed(2)}% thời gian.`,
       },
       {
         stepNumber: 2,
         stageName: 'Phép tính 2 (Lq): Số lượng khách trung bình trong hàng chờ',
-        description: 'Số lượng khách hàng trung bình đang đứng trong hàng đợi để chờ đến lượt phục vụ.',
-        latexFormula: 'L_q = \\frac{\\lambda^2}{\\mu(\\mu - \\lambda)} = \\frac{\\rho^2}{1 - \\rho}',
+        description: 'Số lượng khách hàng trung bình đang đứng đợi trong hàng (chưa được phục vụ).',
+        latexFormula: 'L_q = \\frac{\\rho^2}{1 - \\rho} = \\frac{\\lambda^2}{\\mu(\\mu - \\lambda)}',
         numericalResult: `L_q = \\frac{${res.rho.toFixed(3)}^2}{1 - ${res.rho.toFixed(3)}} = ${res.Lq.toFixed(4)} \\text{ khách}`,
-        explanation: `Trung bình luôn có ${res.Lq.toFixed(2)} khách hàng đang chờ trong hàng đợi (chưa tính khách đang được phục vụ tại quầy).`,
+        explanation: `Trung bình tại bất kỳ thời điểm nào có ${res.Lq.toFixed(2)} khách đang xếp hàng đợi tới lượt.`,
       },
       {
         stepNumber: 3,
         stageName: 'Phép tính 3 (L): Số lượng khách trung bình trong toàn hệ thống',
-        description: 'Tổng số khách hàng trung bình có mặt trong hệ thống (bao gồm cả khách đang chờ trong hàng và khách đang ở quầy phục vụ).',
-        latexFormula: 'L = L_q + \\frac{\\lambda}{\\mu} = \\frac{\\lambda}{\\mu - \\lambda} = \\frac{\\rho}{1 - \\rho}',
-        numericalResult: `L = ${res.Lq.toFixed(4)} + ${res.rho.toFixed(4)} = ${res.L.toFixed(4)} \\text{ khách}`,
-        explanation: `Trung bình toàn bộ hệ thống có ${res.L.toFixed(2)} khách hàng (${res.Lq.toFixed(2)} khách xếp hàng + ${res.rho.toFixed(2)} khách đang được phục vụ).`,
+        description: 'Tổng số khách đang có mặt trong hệ thống (bao gồm cả khách đang đợi và khách đang được phục vụ tại quầy).',
+        latexFormula: 'L = L_q + \\rho = \\frac{\\rho}{1 - \\rho} = \\frac{\\lambda}{\\mu - \\lambda}',
+        numericalResult: `L = \\frac{${res.rho.toFixed(3)}}{1 - ${res.rho.toFixed(3)}} = ${res.L.toFixed(4)} \\text{ khách}`,
+        explanation: `Trung bình có ${res.L.toFixed(2)} khách trong toàn bộ cửa hàng (${res.Lq.toFixed(2)} đang đợi + ${res.rho.toFixed(2)} đang giao dịch).`,
       },
       {
         stepNumber: 4,
         stageName: 'Phép tính 4 (Wq): Thời gian chờ trung bình trong hàng chờ',
-        description: 'Thời gian trung bình một khách hàng phải đứng trong hàng đợi trước khi bắt đầu được phục vụ (áp dụng Định luật Little: Wq = Lq / λ).',
-        latexFormula: 'W_q = \\frac{L_q}{\\lambda} = \\frac{\\lambda}{\\mu(\\mu - \\lambda)} = \\frac{\\rho}{\\mu(1 - \\rho)}',
+        description: 'Thời gian một khách hàng phải xếp hàng đợi trước khi bắt đầu được nhân viên phục vụ (Định luật Little: Wq = Lq / λ).',
+        latexFormula: 'W_q = \\frac{L_q}{\\lambda} = \\frac{\\rho}{\\mu - \\lambda} = \\frac{\\lambda}{\\mu(\\mu - \\lambda)}',
         numericalResult: `W_q = \\frac{${res.Lq.toFixed(4)}}{${lambda}} = ${res.Wq.toFixed(4)} \\text{ giờ} = ${(res.Wq * 60).toFixed(2)} \\text{ phút}`,
-        explanation: `Mỗi khách hàng phải chờ đợi trung bình ${(res.Wq * 60).toFixed(2)} phút trong hàng trước khi tới lượt mình.`,
+        explanation: `Mỗi khách hàng đến phải chờ trung bình ${(res.Wq * 60).toFixed(2)} phút trước khi được nhân viên gọi tên.`,
       },
       {
         stepNumber: 5,
         stageName: 'Phép tính 5 (W): Thời gian lưu lại trung bình trong toàn hệ thống',
-        description: 'Tổng thời gian trung bình một khách hàng trải qua trong hệ thống từ lúc đến cho đến khi được phục vụ xong và rời đi.',
-        latexFormula: 'W = W_q + \\frac{1}{\\mu} = \\frac{L}{\\lambda} = \\frac{1}{\\mu - \\lambda}',
+        description: 'Tổng thời gian một khách hàng trải qua từ khi bước vào hệ thống cho tới khi hoàn tất phục vụ ra về (W = Wq + 1/μ).',
+        latexFormula: 'W = W_q + \\frac{1}{\\mu} = \\frac{1}{\\mu - \\lambda} = \\frac{L}{\\lambda}',
         numericalResult: `W = ${res.Wq.toFixed(4)} + \\frac{1}{${mu}} = ${res.W.toFixed(4)} \\text{ giờ} = ${(res.W * 60).toFixed(2)} \\text{ phút}`,
-        explanation: `Tổng thời gian lưu lại là ${(res.W * 60).toFixed(2)} phút (gồm ${(res.Wq * 60).toFixed(2)} phút xếp hàng chờ và ${((1 / mu) * 60).toFixed(2)} phút được phục vụ).`,
+        explanation: `Tổng thời gian từ lúc đến đến khi rời đi là ${(res.W * 60).toFixed(2)} phút (bao gồm ${(res.Wq * 60).toFixed(2)} phút chờ và ${((1 / mu) * 60).toFixed(2)} phút phục vụ).`,
       },
       {
         stepNumber: 6,
         stageName: 'Phép tính 6 (Pw): Xác suất khách hàng khi đến phải chờ',
-        description: 'Xác suất một khách hàng khi vừa bước vào hệ thống thấy quầy đang bận phục vụ người khác và buộc phải vào hàng chờ.',
+        description: 'Xác suất một khách hàng mới đến thấy quầy đang bận phục vụ người khác và buộc phải vào hàng chờ.',
         latexFormula: 'P_w = P(n \\ge 1) = 1 - P_0 = \\rho = \\frac{\\lambda}{\\mu}',
         numericalResult: `P_w = 1 - ${res.P0.toFixed(4)} = ${res.Pw.toFixed(4)} \\quad (${(res.Pw * 100).toFixed(2)}\\%)`,
-        explanation: `Theo định lý PASTA (Poisson Arrivals See Time Averages), xác suất khách đến phải chờ đúng bằng tỷ lệ bận của server (${(res.Pw * 100).toFixed(2)}%).`,
+        explanation: `Có ${(res.Pw * 100).toFixed(2)}% khả năng một khách hàng khi bước vào sẽ phải xếp hàng chờ đợi.`,
       },
     ];
-  } else if (model === 'M/M/k') {
+  }
+
+  if (model === 'M/M/k') {
     const res = calculateMMC(lambda, mu, k);
-    const a = lambda / mu;
+    const r = lambda / mu;
 
     if (!res.isStable) {
       return [
         {
           stepNumber: 1,
-          stageName: 'Phép tính 1 (P₀): Xác suất không có khách trong hệ thống',
-          description: `Hệ số tải mỗi server ρ = λ / (k·μ) ≥ 1 với k = ${k}.`,
+          stageName: 'Phép tính 1 (P₀): Xác suất hệ thống rảnh',
+          description: 'Hệ số sử dụng ρ = λ/(k·μ) ≥ 1. Hệ thống không ổn định.',
           latexFormula: 'P_0 = 0',
-          numericalResult: `\\rho = \\frac{${lambda}}{${k} \\times ${mu}} = ${res.rho.toFixed(3)} \\ge 1 \\implies P_0 = 0`,
-          explanation: 'Hệ thống M/M/k quá tải nghiêm trọng, hàng chờ sẽ bùng nổ vô hạn.',
+          numericalResult: `\\rho = \\frac{${lambda}}{${k} \\times ${mu}} = ${res.rho.toFixed(3)} \\ge 1`,
+          explanation: 'Hệ thống bùng nổ vô hạn vì tốc độ khách đến lớn hơn hoặc bằng tổng công suất của k quầy.',
         },
         {
           stepNumber: 2,
-          stageName: 'Phép tính 2 (Lq): Số lượng khách trung bình trong hàng chờ',
-          description: 'Hàng chờ kéo dài vô hạn khi tổng năng lực phục vụ nhỏ hơn lưu lượng đến.',
+          stageName: 'Phép tính 2 (Lq): Chiều dài hàng chờ',
+          description: 'Hàng chờ kéo dài vô hạn.',
           latexFormula: 'L_q \\to \\infty',
           numericalResult: 'L_q = \\infty \\text{ (Vô hạn)}',
-          explanation: 'Số khách chờ tích lũy vô hạn theo thời gian.',
+          explanation: 'Hàng chờ dồn ứ vô hạn.',
         },
         {
           stepNumber: 3,
-          stageName: 'Phép tính 3 (L): Số lượng khách trung bình trong toàn hệ thống',
-          description: 'Tổng số khách trong hệ thống không bị chặn.',
+          stageName: 'Phép tính 3 (L): Số khách trong toàn hệ thống',
+          description: 'Hệ thống quá tải.',
           latexFormula: 'L \\to \\infty',
-          numericalResult: 'L = \\infty \\text{ (Vô hạn)}',
-          explanation: 'Hệ thống đa server tắc nghẽn hoàn toàn.',
+          numericalResult: 'L = \\infty',
+          explanation: 'Quá tải toàn diện.',
         },
         {
           stepNumber: 4,
-          stageName: 'Phép tính 4 (Wq): Thời gian chờ trung bình trong hàng chờ',
-          description: 'Thời gian chờ vô hạn khi ρ ≥ 1.',
+          stageName: 'Phép tính 4 (Wq): Thời gian chờ trung bình',
+          description: 'Thời gian chờ vô tận.',
           latexFormula: 'W_q \\to \\infty',
-          numericalResult: 'W_q = \\infty \\text{ (Vô hạn)}',
-          explanation: 'Khách đến không thể được phục vụ kịp thời.',
+          numericalResult: 'W_q = \\infty',
+          explanation: 'Khách hàng không bao giờ được phục vụ hết.',
         },
         {
           stepNumber: 5,
-          stageName: 'Phép tính 5 (W): Thời gian lưu lại trung bình trong hệ thống',
-          description: 'Tổng thời gian lưu lại không thể hội tụ.',
+          stageName: 'Phép tính 5 (W): Thời gian lưu lại trung bình',
+          description: 'Thời gian lưu lại vô tận.',
           latexFormula: 'W \\to \\infty',
-          numericalResult: 'W = \\infty \\text{ (Vô hạn)}',
-          explanation: 'Thời gian lưu lại trong hệ thống tiến tới vô hạn.',
+          numericalResult: 'W = \\infty',
+          explanation: 'Hệ thống sụp đổ.',
         },
         {
           stepNumber: 6,
-          stageName: 'Phép tính 6 (Pw): Xác suất khách đến phải chờ (Erlang C)',
-          description: 'Tất cả các server luôn trong tình trạng bận rộn 100%.',
-          latexFormula: 'P_w = 1',
+          stageName: 'Phép tính 6 (Pw): Xác suất phải xếp hàng',
+          description: 'Tất cả quầy đều bận 100%.',
+          latexFormula: 'P_w = 100\\%',
           numericalResult: 'P_w = 100\\%',
-          explanation: 'Mọi khách đến đều phải chờ đợi vì cả k server đều bận.',
+          explanation: 'Mọi khách đến đều phải chờ.',
         },
       ];
     }
 
-    let sumTerms = 0;
-    for (let n = 0; n < k; n++) {
-      sumTerms += Math.pow(a, n) / factorial(n);
-    }
-    const lastTerm = Math.pow(a, k) / (factorial(k) * (1 - res.rho));
-
     return [
       {
         stepNumber: 1,
-        stageName: 'Phép tính 1 (P₀): Xác suất không có khách trong hệ thống (Tất cả k server đều rảnh)',
-        description: `Mô hình M/M/k với k = ${k} server song song, lượt đến Poisson, phục vụ Mũ. Xác suất không có khách nào trong hệ thống.`,
-        latexFormula: 'P_0 = \\left[ \\sum_{n=0}^{k-1} \\frac{(\\lambda/\\mu)^n}{n!} + \\frac{(\\lambda/\\mu)^k}{k!(1 - \\rho)} \\right]^{-1} \\quad \\left(\\rho = \\frac{\\lambda}{k\\mu}\\right)',
-        numericalResult: `P_0 = \\left[ ${sumTerms.toFixed(4)} + ${lastTerm.toFixed(4)} \\right]^{-1} = ${res.P0.toFixed(4)} \\quad (${(res.P0 * 100).toFixed(2)}\\%)`,
-        explanation: `Cường độ lưu lượng a = λ/μ = ${a.toFixed(3)}, hệ số tải mỗi server ρ = ${(res.rho * 100).toFixed(1)}%. Xác suất cả ${k} server đều rảnh là ${(res.P0 * 100).toFixed(2)}%.`,
+        stageName: 'Phép tính 1 (P₀): Xác suất không có khách trong hệ thống (Tất cả quầy đều rảnh)',
+        description: `Mô hình M/M/${k}: Xác suất toàn bộ ${k} quầy phục vụ đều không có khách nào (cả hệ thống rảnh).`,
+        latexFormula: 'P_0 = \\left[ \\sum_{n=0}^{k-1} \\frac{r^n}{n!} + \\frac{r^k}{k!(1 - \\rho)} \\right]^{-1} \\quad \\left( r = \\frac{\\lambda}{\\mu} \\right)',
+        numericalResult: `r = \\frac{${lambda}}{${mu}} = ${r.toFixed(2)}, \\; \\rho = \\frac{${r.toFixed(2)}}{${k}} = ${res.rho.toFixed(3)} \\implies P_0 = ${res.P0.toFixed(4)} \\quad (${(res.P0 * 100).toFixed(2)}\\%)`,
+        explanation: `Xác suất để tất cả ${k} quầy cùng rảnh rỗi đồng thời là ${(res.P0 * 100).toFixed(2)}%.`,
       },
       {
         stepNumber: 2,
         stageName: 'Phép tính 2 (Lq): Số lượng khách trung bình trong hàng chờ',
-        description: `Số khách hàng trung bình đứng đợi trong hàng chờ chung trước khi được bất kỳ server nào trong ${k} server tiếp nhận.`,
-        latexFormula: 'L_q = \\frac{(\\lambda/\\mu)^k \\cdot \\rho}{k!(1 - \\rho)^2} \\cdot P_0 = \\frac{P_w \\cdot \\rho}{1 - \\rho}',
-        numericalResult: `L_q = \\frac{(${a.toFixed(3)})^${k} \\times ${res.rho.toFixed(3)}}{${k}! \\times (1 - ${res.rho.toFixed(3)})^2} \\times ${res.P0.toFixed(4)} = ${res.Lq.toFixed(4)} \\text{ khách}`,
-        explanation: `Nhờ chia tải qua ${k} server, số khách xếp hàng chờ trung bình chỉ còn ${res.Lq.toFixed(2)} khách.`,
+        description: 'Số lượng khách hàng trung bình đứng đợi trong hàng chờ chung (Erlang C).',
+        latexFormula: 'L_q = \\frac{P_w \\cdot \\rho}{1 - \\rho} = \\frac{P_0 \\cdot r^k \\cdot \\rho}{k!(1 - \\rho)^2}',
+        numericalResult: `L_q = \\frac{${res.Pw.toFixed(4)} \\times ${res.rho.toFixed(3)}}{1 - ${res.rho.toFixed(3)}} = ${res.Lq.toFixed(4)} \\text{ khách}`,
+        explanation: `Trung bình có ${res.Lq.toFixed(2)} khách đang xếp hàng đợi ở hàng chờ dùng chung.`,
       },
       {
         stepNumber: 3,
         stageName: 'Phép tính 3 (L): Số lượng khách trung bình trong toàn hệ thống',
-        description: `Tổng số khách trong hệ thống (gồm khách trong hàng chờ Lq và số khách đang được phục vụ tại các server = λ/μ).`,
-        latexFormula: 'L = L_q + \\frac{\\lambda}{\\mu} = L_q + k\\rho',
-        numericalResult: `L = ${res.Lq.toFixed(4)} + ${a.toFixed(4)} = ${res.L.toFixed(4)} \\text{ khách}`,
-        explanation: `Trung bình có ${res.L.toFixed(2)} khách trong toàn bộ hệ thống (${res.Lq.toFixed(2)} khách chờ + ${a.toFixed(2)} khách đang được phục vụ tại các server).`,
+        description: `Tổng số khách trong hệ thống gồm khách đợi trong hàng và khách đang được phục vụ tại ${k} quầy.`,
+        latexFormula: 'L = L_q + r = L_q + \\frac{\\lambda}{\\mu} = \\lambda W',
+        numericalResult: `L = ${res.Lq.toFixed(4)} + ${r.toFixed(4)} = ${res.L.toFixed(4)} \\text{ khách}`,
+        explanation: `Trung bình có ${res.L.toFixed(2)} khách trong toàn bộ hệ thống (${res.Lq.toFixed(2)} khách đợi + ${r.toFixed(2)} khách đang giao dịch tại các quầy).`,
       },
       {
         stepNumber: 4,
         stageName: 'Phép tính 4 (Wq): Thời gian chờ trung bình trong hàng chờ',
-        description: 'Thời gian một khách hàng phải chờ trong hàng đợi chung (áp dụng Định luật Little: Wq = Lq / λ).',
-        latexFormula: 'W_q = \\frac{L_q}{\\lambda}',
+        description: 'Thời gian một khách hàng trung bình phải đợi trong hàng trước khi có 1 trong các quầy trống gọi vào.',
+        latexFormula: 'W_q = \\frac{L_q}{\\lambda} = \\frac{P_w}{k\\mu - \\lambda}',
         numericalResult: `W_q = \\frac{${res.Lq.toFixed(4)}}{${lambda}} = ${res.Wq.toFixed(4)} \\text{ giờ} = ${(res.Wq * 60).toFixed(2)} \\text{ phút}`,
-        explanation: `Thời gian khách phải đợi trong hàng trung bình là ${(res.Wq * 60).toFixed(2)} phút trước khi có server trống.`,
+        explanation: `Khách hàng chỉ phải đợi trung bình ${(res.Wq * 60).toFixed(2)} phút trong hàng chờ chung.`,
       },
       {
         stepNumber: 5,
         stageName: 'Phép tính 5 (W): Thời gian lưu lại trung bình trong toàn hệ thống',
-        description: 'Tổng thời gian một khách hàng trải qua trong hệ thống từ lúc vào hàng chờ đến khi được phục vụ xong.',
+        description: 'Tổng thời gian một khách hàng lưu lại từ khi đến cho tới khi phục vụ xong.',
         latexFormula: 'W = W_q + \\frac{1}{\\mu} = \\frac{L}{\\lambda}',
         numericalResult: `W = ${res.Wq.toFixed(4)} + \\frac{1}{${mu}} = ${res.W.toFixed(4)} \\text{ giờ} = ${(res.W * 60).toFixed(2)} \\text{ phút}`,
-        explanation: `Tổng thời gian lưu lại trung bình là ${(res.W * 60).toFixed(2)} phút (gồm ${(res.Wq * 60).toFixed(2)} phút chờ và ${((1 / mu) * 60).toFixed(2)} phút phục vụ).`,
+        explanation: `Tổng thời gian khách hàng lưu lại là ${(res.W * 60).toFixed(2)} phút (gồm ${(res.Wq * 60).toFixed(2)} phút chờ và ${((1 / mu) * 60).toFixed(2)} phút phục vụ).`,
       },
       {
         stepNumber: 6,
         stageName: 'Phép tính 6 (Pw): Xác suất khách hàng khi đến phải chờ (Công thức Erlang C)',
-        description: `Xác suất một khách hàng khi đến thấy tất cả ${k} server đều đang bận và phải vào hàng chờ.`,
-        latexFormula: 'P_w = C(k, \\lambda/\\mu) = \\frac{(\\lambda/\\mu)^k}{k!(1 - \\rho)} \\cdot P_0 = \\frac{L_q (1 - \\rho)}{\\rho}',
-        numericalResult: `P_w = \\frac{(${a.toFixed(3)})^${k}}{${k}! \\times (1 - ${res.rho.toFixed(3)})} \\times ${res.P0.toFixed(4)} = ${res.Pw.toFixed(4)} \\quad (${(res.Pw * 100).toFixed(2)}\\%)`,
-        explanation: `Theo công thức Erlang C, có ${(res.Pw * 100).toFixed(2)}% khách hàng khi đến sẽ thấy toàn bộ ${k} server đều bận và phải chờ đợi.`,
+        description: `Xác suất một khách hàng khi đến thấy toàn bộ ${k} quầy đều đang bận và buộc phải xếp hàng.`,
+        latexFormula: 'P_w = C(k, r) = \\frac{\\frac{r^k}{k!(1 - \\rho)}}{\\sum_{n=0}^{k-1} \\frac{r^n}{n!} + \\frac{r^k}{k!(1 - \\rho)}} = \\frac{r^k}{k!(1 - \\rho)} \\cdot P_0',
+        numericalResult: `P_w = ${res.Pw.toFixed(4)} \\quad (${(res.Pw * 100).toFixed(2)}\\%)`,
+        explanation: `Có ${(res.Pw * 100).toFixed(2)}% khả năng một khách hàng khi đến phải đứng đợi vì cả ${k} quầy đều đang bận.`,
       },
     ];
-  } else if (model === 'M/G/1') {
-    const res = calculateMG1(lambda, mu, sigma);
-    const varS = sigma * sigma;
+  }
 
+  if (model === 'M/G/1') {
+    const res = calculateMG1(lambda, mu, sigma);
     if (!res.isStable) {
       return [
         {
@@ -400,106 +439,107 @@ export function getStepByStepCalculation(
           stageName: 'Phép tính 1 (P₀): Xác suất quầy rảnh rỗi',
           description: 'Hệ số sử dụng ρ = λ/μ ≥ 1. Hệ thống không ổn định.',
           latexFormula: 'P_0 = 1 - \\rho = 0',
-          numericalResult: `\\rho = \\frac{${lambda}}{${mu}} = ${res.rho.toFixed(3)} \\ge 1 \\implies P_0 = 0`,
-          explanation: 'Hệ thống M/G/1 quá tải, hàng chờ bùng nổ vô hạn.',
+          numericalResult: `\\rho = ${res.rho.toFixed(3)} \\ge 1`,
+          explanation: 'Hệ thống bùng nổ do quá tải.',
         },
         {
           stepNumber: 2,
-          stageName: 'Phép tính 2 (Lq): Số lượng khách trung bình trong hàng chờ',
-          description: 'Công thức Pollaczek-Khinchine phân kỳ khi ρ ≥ 1.',
-          latexFormula: 'L_q = \\frac{\\lambda^2 \\sigma^2 + \\rho^2}{2(1 - \\rho)} \\to \\infty',
-          numericalResult: 'L_q = \\infty \\text{ (Vô hạn)}',
-          explanation: 'Hàng chờ không bao giờ ổn định.',
+          stageName: 'Phép tính 2 (Lq): Chiều dài hàng chờ (Pollaczek-Khinchine)',
+          description: 'Hàng chờ tiến đến vô hạn.',
+          latexFormula: 'L_q \\to \\infty',
+          numericalResult: 'L_q = \\infty',
+          explanation: 'Hàng chờ dồn ứ vô hạn.',
         },
         {
           stepNumber: 3,
-          stageName: 'Phép tính 3 (L): Số lượng khách trung bình trong toàn hệ thống',
-          description: 'Tổng số khách trong hệ thống không bị chặn.',
-          latexFormula: 'L = L_q + \\rho \\to \\infty',
-          numericalResult: 'L = \\infty \\text{ (Vô hạn)}',
-          explanation: 'Hệ thống tắc nghẽn vô hạn.',
+          stageName: 'Phép tính 3 (L): Số khách trong toàn hệ thống',
+          description: 'Quá tải toàn diện.',
+          latexFormula: 'L \\to \\infty',
+          numericalResult: 'L = \\infty',
+          explanation: 'Hệ thống sụp đổ.',
         },
         {
           stepNumber: 4,
-          stageName: 'Phép tính 4 (Wq): Thời gian chờ trung bình trong hàng chờ',
-          description: 'Thời gian chờ vô hạn khi ρ ≥ 1.',
-          latexFormula: 'W_q = \\frac{L_q}{\\lambda} \\to \\infty',
-          numericalResult: 'W_q = \\infty \\text{ (Vô hạn)}',
-          explanation: 'Khách hàng phải chờ vô hạn.',
+          stageName: 'Phép tính 4 (Wq): Thời gian chờ trung bình',
+          description: 'Thời gian chờ vô tận.',
+          latexFormula: 'W_q \\to \\infty',
+          numericalResult: 'W_q = \\infty',
+          explanation: 'Chờ vô tận.',
         },
         {
           stepNumber: 5,
-          stageName: 'Phép tính 5 (W): Thời gian lưu lại trung bình trong hệ thống',
-          description: 'Tổng thời gian lưu lại không thể hội tụ.',
-          latexFormula: 'W = W_q + \\frac{1}{\\mu} \\to \\infty',
-          numericalResult: 'W = \\infty \\text{ (Vô hạn)}',
-          explanation: 'Thời gian lưu lại trong hệ thống tiến tới vô hạn.',
+          stageName: 'Phép tính 5 (W): Thời gian lưu lại trung bình',
+          description: 'Thời gian lưu lại vô tận.',
+          latexFormula: 'W \\to \\infty',
+          numericalResult: 'W = \\infty',
+          explanation: 'Hệ thống sụp đổ.',
         },
         {
           stepNumber: 6,
-          stageName: 'Phép tính 6 (Pw): Xác suất khách đến phải chờ',
-          description: 'Xác suất phải chờ bằng 100% khi hệ thống quá tải.',
-          latexFormula: 'P_w = 1',
+          stageName: 'Phép tính 6 (Pw): Xác suất phải chờ',
+          description: 'Server luôn bận 100%.',
+          latexFormula: 'P_w = 100\\%',
           numericalResult: 'P_w = 100\\%',
-          explanation: 'Mọi khách đến đều phải chờ do server luôn bận.',
+          explanation: 'Mọi khách đến đều phải chờ.',
         },
       ];
     }
 
+    const varS = sigma * sigma;
     return [
       {
         stepNumber: 1,
         stageName: 'Phép tính 1 (P₀): Xác suất không có khách trong hệ thống (Hệ thống rảnh)',
-        description: 'Mô hình M/G/1: Lượt đến Poisson, thời gian phục vụ tổng quát với độ lệch chuẩn σ, 1 server. Theo định lý PASTA, xác suất server rảnh rỗi phụ thuộc duy nhất vào hệ số tải ρ.',
+        description: 'Mô hình M/G/1: Lượt đến Poisson, thời gian phục vụ phân phối tổng quát G (kỳ vọng 1/μ, phương sai σ²), 1 server.',
         latexFormula: 'P_0 = 1 - \\rho = 1 - \\frac{\\lambda}{\\mu}',
         numericalResult: `P_0 = 1 - \\frac{${lambda}}{${mu}} = 1 - ${res.rho.toFixed(3)} = ${res.P0.toFixed(4)} \\quad (${(res.P0 * 100).toFixed(2)}\\%)`,
-        explanation: `Hệ số tải \\rho = ${(res.rho * 100).toFixed(1)}%. Quầy phục vụ rảnh ${(res.P0 * 100).toFixed(2)}% thời gian và bận ${(res.rho * 100).toFixed(2)}% thời gian.`,
+        explanation: `Quầy rảnh rỗi ${(res.P0 * 100).toFixed(2)}% thời gian. Lưu ý: Xác suất P₀ chỉ phụ thuộc vào ρ, không phụ thuộc vào phương sai σ².`,
       },
       {
         stepNumber: 2,
         stageName: 'Phép tính 2 (Lq): Số lượng khách trung bình trong hàng chờ (Công thức Pollaczek-Khinchine)',
-        description: 'Công thức Pollaczek-Khinchine (P-K Formula) kinh điển: Số khách chờ phụ thuộc vào cả tải trung bình ρ và phương sai thời gian phục vụ σ².',
-        latexFormula: 'L_q = \\frac{\\lambda^2 \\sigma^2 + \\rho^2}{2(1 - \\rho)} \\quad \\left(\\sigma^2 = \\text{Var}(S) = ' + varS.toFixed(5) + '\\right)',
+        description: 'Công thức P-K nổi tiếng thể hiện tác động trực tiếp của độ biến thiên thời gian phục vụ (σ²) lên chiều dài hàng chờ.',
+        latexFormula: 'L_q = \\frac{\\lambda^2 \\sigma^2 + \\rho^2}{2(1 - \\rho)}',
         numericalResult: `L_q = \\frac{${lambda}^2 \\times ${varS.toFixed(5)} + ${res.rho.toFixed(3)}^2}{2(1 - ${res.rho.toFixed(3)})} = ${res.Lq.toFixed(4)} \\text{ khách}`,
-        explanation: `Phương sai \\sigma^2 = ${varS.toFixed(5)} thể hiện sự biến thiên trong thời gian phục vụ. Khi phương sai càng lớn, hàng chờ Lq càng dài.`,
+        explanation: `Độ biến thiên thời gian phục vụ (σ = ${sigma}) làm tăng chiều dài hàng chờ lên ${res.Lq.toFixed(2)} khách. Phương sai càng lớn thì hàng chờ càng dài!`,
       },
       {
         stepNumber: 3,
         stageName: 'Phép tính 3 (L): Số lượng khách trung bình trong toàn hệ thống',
-        description: 'Tổng số khách hàng trung bình có mặt trong hệ thống M/G/1.',
-        latexFormula: 'L = L_q + \\rho = L_q + \\frac{\\lambda}{\\mu}',
+        description: 'Tổng số khách có mặt trong hệ thống M/G/1.',
+        latexFormula: 'L = L_q + \\rho = \\frac{\\lambda^2 \\sigma^2 + \\rho^2}{2(1 - \\rho)} + \\rho',
         numericalResult: `L = ${res.Lq.toFixed(4)} + ${res.rho.toFixed(4)} = ${res.L.toFixed(4)} \\text{ khách}`,
-        explanation: `Tổng số khách có mặt trong hệ thống là ${res.L.toFixed(2)} khách (gồm ${res.Lq.toFixed(2)} khách trong hàng và ${res.rho.toFixed(2)} khách đang được phục vụ).`,
+        explanation: `Trung bình có ${res.L.toFixed(2)} khách trong toàn bộ hệ thống (${res.Lq.toFixed(2)} khách đợi + ${res.rho.toFixed(2)} khách đang được phục vụ).`,
       },
       {
         stepNumber: 4,
         stageName: 'Phép tính 4 (Wq): Thời gian chờ trung bình trong hàng chờ',
-        description: 'Thời gian chờ trung bình của khách trong hàng (theo Định luật Little: Wq = Lq / λ).',
-        latexFormula: 'W_q = \\frac{L_q}{\\lambda} = \\frac{\\lambda^2 \\sigma^2 + \\rho^2}{2\\lambda(1 - \\rho)}',
+        description: 'Thời gian một khách hàng phải chờ đợi trong hàng (theo Định luật Little: Wq = Lq / λ).',
+        latexFormula: 'W_q = \\frac{L_q}{\\lambda} = \\frac{\\lambda \\sigma^2 + \\frac{\\rho}{\\mu}}{2(1 - \\rho)}',
         numericalResult: `W_q = \\frac{${res.Lq.toFixed(4)}}{${lambda}} = ${res.Wq.toFixed(4)} \\text{ giờ} = ${(res.Wq * 60).toFixed(2)} \\text{ phút}`,
-        explanation: `Khách hàng phải chờ trung bình ${(res.Wq * 60).toFixed(2)} phút trong hàng trước khi được phục vụ.`,
+        explanation: `Khách hàng phải chờ trung bình ${(res.Wq * 60).toFixed(2)} phút trong hàng chờ trước khi được phục vụ.`,
       },
       {
         stepNumber: 5,
         stageName: 'Phép tính 5 (W): Thời gian lưu lại trung bình trong toàn hệ thống',
-        description: 'Tổng thời gian trung bình khách hàng lưu lại trong hệ thống từ lúc vào đến khi hoàn tất dịch vụ.',
+        description: 'Tổng thời gian một khách hàng lưu lại từ khi đến cho tới khi phục vụ xong.',
         latexFormula: 'W = W_q + \\frac{1}{\\mu} = \\frac{L}{\\lambda}',
         numericalResult: `W = ${res.Wq.toFixed(4)} + \\frac{1}{${mu}} = ${res.W.toFixed(4)} \\text{ giờ} = ${(res.W * 60).toFixed(2)} \\text{ phút}`,
-        explanation: `Tổng thời gian lưu lại là ${(res.W * 60).toFixed(2)} phút (bao gồm ${(res.Wq * 60).toFixed(2)} phút chờ đợi và ${((1 / mu) * 60).toFixed(2)} phút được phục vụ).`,
+        explanation: `Tổng thời gian lưu lại là ${(res.W * 60).toFixed(2)} phút (gồm ${(res.Wq * 60).toFixed(2)} phút chờ và ${((1 / mu) * 60).toFixed(2)} phút phục vụ trung bình).`,
       },
       {
         stepNumber: 6,
         stageName: 'Phép tính 6 (Pw): Xác suất khách hàng khi đến phải chờ',
-        description: 'Xác suất một khách hàng khi đến thấy server đang bận phục vụ và buộc phải vào hàng chờ.',
+        description: 'Theo định lý PASTA (Poisson Arrivals See Time Averages), xác suất khách đến gặp server đang bận.',
         latexFormula: 'P_w = P(n \\ge 1) = 1 - P_0 = \\rho = \\frac{\\lambda}{\\mu}',
         numericalResult: `P_w = 1 - ${res.P0.toFixed(4)} = ${res.Pw.toFixed(4)} \\quad (${(res.Pw * 100).toFixed(2)}\\%)`,
-        explanation: `Với lượt đến Poisson (PASTA), xác suất khách đến phải chờ đúng bằng tỷ lệ bận của server (${(res.Pw * 100).toFixed(2)}%).`,
+        explanation: `Có ${(res.Pw * 100).toFixed(2)}% khả năng một khách hàng khi bước vào sẽ phải chờ vì server đang bận.`,
       },
     ];
-  } else {
-    // M/D/1
-    const res = calculateMD1(lambda, mu);
+  }
 
+  if (model === 'M/D/1') {
+    const res = calculateMD1(lambda, mu);
     if (!res.isStable) {
       return [
         {
@@ -507,46 +547,46 @@ export function getStepByStepCalculation(
           stageName: 'Phép tính 1 (P₀): Xác suất quầy rảnh rỗi',
           description: 'Hệ số sử dụng ρ = λ/μ ≥ 1. Hệ thống không ổn định.',
           latexFormula: 'P_0 = 1 - \\rho = 0',
-          numericalResult: `\\rho = \\frac{${lambda}}{${mu}} = ${res.rho.toFixed(3)} \\ge 1 \\implies P_0 = 0`,
-          explanation: 'Hệ thống M/D/1 quá tải, hàng chờ bùng nổ vô hạn.',
+          numericalResult: `\\rho = ${res.rho.toFixed(3)} \\ge 1`,
+          explanation: 'Hệ thống bùng nổ do quá tải.',
         },
         {
           stepNumber: 2,
-          stageName: 'Phép tính 2 (Lq): Số lượng khách trung bình trong hàng chờ',
-          description: 'Hàng chờ kéo dài vô hạn khi ρ ≥ 1.',
-          latexFormula: 'L_q = \\frac{\\rho^2}{2(1 - \\rho)} \\to \\infty',
-          numericalResult: 'L_q = \\infty \\text{ (Vô hạn)}',
-          explanation: 'Hàng chờ không bao giờ giải tỏa.',
+          stageName: 'Phép tính 2 (Lq): Chiều dài hàng chờ M/D/1',
+          description: 'Hàng chờ tiến đến vô hạn.',
+          latexFormula: 'L_q \\to \\infty',
+          numericalResult: 'L_q = \\infty',
+          explanation: 'Hàng chờ dồn ứ vô hạn.',
         },
         {
           stepNumber: 3,
-          stageName: 'Phép tính 3 (L): Số lượng khách trung bình trong toàn hệ thống',
-          description: 'Tổng số khách trong hệ thống không bị chặn.',
+          stageName: 'Phép tính 3 (L): Số khách trong toàn hệ thống',
+          description: 'Quá tải toàn diện.',
           latexFormula: 'L \\to \\infty',
-          numericalResult: 'L = \\infty \\text{ (Vô hạn)}',
-          explanation: 'Hệ thống tắc nghẽn vô hạn.',
+          numericalResult: 'L = \\infty',
+          explanation: 'Hệ thống sụp đổ.',
         },
         {
           stepNumber: 4,
-          stageName: 'Phép tính 4 (Wq): Thời gian chờ trung bình trong hàng chờ',
-          description: 'Thời gian chờ vô hạn khi ρ ≥ 1.',
-          latexFormula: 'W_q = \\frac{L_q}{\\lambda} \\to \\infty',
-          numericalResult: 'W_q = \\infty \\text{ (Vô hạn)}',
-          explanation: 'Khách hàng phải chờ vô hạn.',
+          stageName: 'Phép tính 4 (Wq): Thời gian chờ trung bình',
+          description: 'Thời gian chờ vô tận.',
+          latexFormula: 'W_q \\to \\infty',
+          numericalResult: 'W_q = \\infty',
+          explanation: 'Chờ vô tận.',
         },
         {
           stepNumber: 5,
-          stageName: 'Phép tính 5 (W): Thời gian lưu lại trung bình trong hệ thống',
-          description: 'Tổng thời gian lưu lại không thể hội tụ.',
-          latexFormula: 'W = W_q + \\frac{1}{\\mu} \\to \\infty',
-          numericalResult: 'W = \\infty \\text{ (Vô hạn)}',
-          explanation: 'Thời gian lưu lại trong hệ thống tiến tới vô hạn.',
+          stageName: 'Phép tính 5 (W): Thời gian lưu lại trung bình',
+          description: 'Thời gian lưu lại vô tận.',
+          latexFormula: 'W \\to \\infty',
+          numericalResult: 'W = \\infty',
+          explanation: 'Hệ thống sụp đổ.',
         },
         {
           stepNumber: 6,
-          stageName: 'Phép tính 6 (Pw): Xác suất khách đến phải chờ',
-          description: 'Xác suất phải chờ bằng 100% khi hệ thống quá tải.',
-          latexFormula: 'P_w = 1',
+          stageName: 'Phép tính 6 (Pw): Xác suất phải chờ',
+          description: 'Server luôn bận 100%.',
+          latexFormula: 'P_w = 100\\%',
           numericalResult: 'P_w = 100\\%',
           explanation: 'Mọi khách đến đều phải chờ do server luôn bận.',
         },
@@ -604,6 +644,59 @@ export function getStepByStepCalculation(
       },
     ];
   }
+
+  // Model: M/G/k không có hàng chờ (M/G/k/k Loss System / Erlang-B)
+  const res = calculateMGkLoss(lambda, mu, k);
+  return [
+    {
+      stepNumber: 1,
+      stageName: 'Phép tính 1 (P₀): Xác suất không có khách trong hệ thống (Tất cả quầy đều rảnh)',
+      description: `Mô hình M/G/k không có hàng chờ (M/G/k/k Loss System): Lượt đến Poisson λ = ${lambda} khách/giờ, thời gian phục vụ tổng quát G (trung bình 1/μ = ${((1 / mu) * 60).toFixed(1)} phút), k = ${k} servers, dung lượng hàng chờ = 0. Tải cung cấp a = λ/μ.`,
+      latexFormula: 'P_0 = \\frac{1}{\\sum_{n=0}^k \\frac{a^n}{n!}} \\quad \\text{với } a = \\frac{\\lambda}{\\mu}',
+      numericalResult: `a = \\frac{${lambda}}{${mu}} = ${res.a.toFixed(3)} \\text{ Erlang} \\implies P_0 = ${res.P0.toFixed(4)} \\quad (${(res.P0 * 100).toFixed(2)}\\%)`,
+      explanation: `Đặc tính bất biến Erlang (Insensitivity Property): Xác suất P₀ chỉ phụ thuộc vào tỷ lệ tải a = λ/μ = ${res.a.toFixed(2)}, hoàn toàn độc lập với hình dạng phân phối hay phương sai σ² của thời gian phục vụ G.`,
+    },
+    {
+      stepNumber: 2,
+      stageName: 'Phép tính 2 (Lq): Số lượng khách trung bình trong hàng chờ',
+      description: 'Vì hệ thống được thiết kế không có hàng chờ (sức chứa hàng chờ bằng 0, khách đến khi k quầy bận sẽ bị từ chối / rời đi ngay).',
+      latexFormula: 'L_q = 0 \\text{ (Không có vùng đệm chờ)}',
+      numericalResult: 'L_q = 0 \\text{ khách}',
+      explanation: 'Do hệ thống không lưu giữ khách xếp hàng, chiều dài hàng chờ Lq luôn bằng 0 tuyệt đối.',
+    },
+    {
+      stepNumber: 3,
+      stageName: 'Phép tính 3 (L): Số lượng khách trung bình trong toàn hệ thống (Số quầy đang bận)',
+      description: 'Tổng số khách trung bình có mặt trong hệ thống bằng chính số quầy đang bận phục vụ tại trạng thái dừng.',
+      latexFormula: 'L = a(1 - P_k) = \\frac{\\lambda(1 - P_k)}{\\mu} = \\frac{\\lambda_{eff}}{\\mu}',
+      numericalResult: `L = ${res.a.toFixed(3)} \\times (1 - ${res.Pk.toFixed(4)}) = ${res.L.toFixed(4)} \\text{ khách}`,
+      explanation: `Thông lượng khách thực tế được tiếp nhận là λ_eff = λ(1 - Pk) = ${res.lambdaEff.toFixed(2)} khách/giờ. Trung bình có ${res.L.toFixed(2)} / ${k} quầy đang bận phục vụ.`,
+    },
+    {
+      stepNumber: 4,
+      stageName: 'Phép tính 4 (Wq): Thời gian chờ trung bình trong hàng chờ',
+      description: 'Thời gian chờ trong hàng của khách hàng trước khi vào quầy phục vụ.',
+      latexFormula: 'W_q = 0 \\text{ (Không có hàng chờ)}',
+      numericalResult: 'W_q = 0 \\text{ giờ} = 0 \\text{ phút}',
+      explanation: 'Khách hàng đến khi có quầy rảnh sẽ được phục vụ ngay lập tức, không mất thời gian đợi.',
+    },
+    {
+      stepNumber: 5,
+      stageName: 'Phép tính 5 (W): Thời gian lưu lại trung bình trong toàn hệ thống',
+      description: 'Thời gian trung bình của một khách hàng được tiếp nhận từ khi vào đến khi rời hệ thống.',
+      latexFormula: 'W = W_q + \\frac{1}{\\mu} = 0 + \\frac{1}{\\mu} = \\frac{1}{\\mu} = \\frac{L}{\\lambda_{eff}}',
+      numericalResult: `W = \\frac{1}{${mu}} = ${res.W.toFixed(4)} \\text{ giờ} = ${(res.W * 60).toFixed(2)} \\text{ phút}`,
+      explanation: `Thời gian lưu lại đúng bằng thời gian phục vụ trung bình tại quầy: ${(res.W * 60).toFixed(2)} phút (thỏa mãn chính xác Định luật Little: W = L / λ_eff).`,
+    },
+    {
+      stepNumber: 6,
+      stageName: 'Phép tính 6 (Pw hay P_loss): Xác suất mất khách (Công thức Erlang B)',
+      description: `Xác suất một khách hàng khi đến gặp toàn bộ k = ${k} quầy đều đang bận và bị từ chối phục vụ (Blocking probability / Erlang-B).`,
+      latexFormula: 'P_w = P_k = B(k, a) = \\frac{\\frac{a^k}{k!}}{\\sum_{n=0}^k \\frac{a^n}{n!}}',
+      numericalResult: `P_w = P_{${k}} = B(${k}, ${res.a.toFixed(2)}) = ${res.Pk.toFixed(4)} \\quad (${(res.Pk * 100).toFixed(2)}\\%)`,
+      explanation: `Xác suất bị chặn / mất khách là ${(res.Pk * 100).toFixed(2)}%. Khách hàng bị mất trung bình mỗi giờ là: λ × Pk = ${(lambda * res.Pk).toFixed(2)} khách/giờ.`,
+    },
+  ];
 }
 
 export function calculateOptimalServers(
