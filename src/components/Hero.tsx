@@ -43,11 +43,21 @@ export const Hero: React.FC = () => {
 
   <p className="text-base sm:text-lg text-slate-300">
     <span className="font-medium text-slate-400">
-      Giảng viên:
+      Giảng viên hướng dẫn:
     </span>
     <span className="block sm:inline sm:ml-2 font-semibold text-white">
       TS. Chu Nguyễn Mộng Ngọc
     </span>
+  </p>
+</div>
+
+  {/* Phần mô tả */}
+  <p className="mt-7 text-base sm:text-lg text-slate-300 max-w-3xl leading-relaxed">
+    Khám phá toàn diện Lý thuyết Hàng chờ (Queueing Theory)
+    qua mô phỏng trực quan tương tác thời gian thực,
+    bóc tách công thức toán học từng bước (Định luật Little,
+    M/M/1, M/M/c, M/M/1/K, M/G/1), tối ưu hóa cân bằng chi phí
+    và giải quyết các bài toán kinh doanh thực tế.
   </p>
 </div>
 
